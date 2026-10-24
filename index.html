@@ -180,12 +180,11 @@ html, body {
 #joystick.active #joyKnob { filter:brightness(1.3); }
 
 #rotateTip {
-  display:none; position:absolute; inset:0; z-index:50;
-  background:#12121c; color:#a0a0bb;
-  flex-direction:column; align-items:center; justify-content:center;
-  gap:12px; font-size:18px; text-align:center;
+  display:none; position:absolute; top:0; left:0; right:0; z-index:60;
+  background:rgba(255,213,79,.14); color:#ffd45e;
+  padding:7px 12px; font-size:13px; text-align:center;
+  align-items:center; justify-content:center;
 }
-@media (orientation: portrait) { #rotateTip { display:flex; } }
 </style>
 </head>
 <body>
@@ -242,7 +241,7 @@ html, body {
     </div>
   </div>
 
-  <div id="rotateTip"><div>📱 请横屏游玩</div><div style="font-size:13px;color:#5a5a75">旋转手机获得最佳体验</div></div>
+  <div id="rotateTip">📱 竖屏也能玩，横屏体验更佳</div>
 </div>
 
 <script>
@@ -272,6 +271,7 @@ html, body {
   var waitTip = document.getElementById('waitTip'), netTip = document.getElementById('netTip');
   var roomTag = document.getElementById('roomTag');
   var elTimer = document.getElementById('timer');
+  var rotateTip = document.getElementById('rotateTip');
 
   // 联机状态
   var mode = null;          // 'host' | 'client'
@@ -584,6 +584,7 @@ html, body {
   function enterGame() {
     elMenu.classList.add('hide');
     elGame.classList.remove('hide');
+    updateRotateTip();
     roomTag.textContent = mode === 'host' ? ('房间 ' + roomCodeEl.textContent) : '';
     btnWrap.classList.remove('hide');
     showOverlay(mode === 'host' ? '等待对手加入' : '已连接', mode === 'host' ? '把房间码发给对手' : '等待房主开始…', '开始对战');
@@ -603,6 +604,12 @@ html, body {
     canvas.width = Math.floor(w * dpr); canvas.height = Math.floor(h * dpr);
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     draw();
+    updateRotateTip();
+  }
+  function updateRotateTip() {
+    var portrait = window.innerHeight > window.innerWidth;
+    var inGame = !elGame.classList.contains('hide');
+    rotateTip.style.display = (portrait && inGame) ? 'flex' : 'none';
   }
   window.addEventListener('resize', resize);
   window.addEventListener('orientationchange', function () { setTimeout(resize, 150); setTimeout(resize, 420); });
