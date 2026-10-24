@@ -1,4 +1,4 @@
-<!DOCTYPE html> 
+<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
@@ -179,6 +179,7 @@ html, body {
       <button class="cbtn" id="btnStart2">开始</button>
       <button class="cbtn hide" id="btnWrap">穿墙：关</button>
       <button class="cbtn" id="btnRestart">重开</button>
+      <span id="timer" class="cbtn" style="min-width:62px;text-align:center">03:00</span>
       <div class="stat p2" id="st2"><span class="k">P2</span><span class="v" id="p2score">0</span></div>
       <span id="roomTag"></span>
     </div>
@@ -210,8 +211,9 @@ html, body {
   'use strict';
 
   var COLS = 28, ROWS = 16;
-  var BASE_INTERVAL = 150, MIN_INTERVAL = 80, SPEED_STEP = 8;
+  var BASE_INTERVAL = 230, MIN_INTERVAL = 140, SPEED_STEP = 5;
   var FOOD_PER_LEVEL = 5, SCORE_PER_FOOD = 10, FOOD_COUNT = 3;
+  var GAME_SECONDS = 180;
   var PRAISES = ['真棒', '非常厉害', '天神下凡', '大小姐驾到统统闪开', '一刀999', '同学办校园卡吗'];
 
   // DOM
@@ -230,6 +232,7 @@ html, body {
   var roomBox = document.getElementById('roomBox'), roomCodeEl = document.getElementById('roomCode');
   var waitTip = document.getElementById('waitTip'), netTip = document.getElementById('netTip');
   var roomTag = document.getElementById('roomTag');
+  var elTimer = document.getElementById('timer');
 
   // 联机状态
   var mode = null;          // 'host' | 'client'
@@ -247,6 +250,7 @@ html, body {
   var wrapOn = false;
   var lastTime = 0, acc = 0, interval = BASE_INTERVAL;
   var cell = 20, tick = 0, praiseIndex = 0;
+  var endTime = 0, timeLeft = GAME_SECONDS, gameStarted = false;
 
   // ================= 工具 =================
   function netMsg(t) { netTip.textContent = t; }
@@ -327,6 +331,7 @@ html, body {
       else if (m.t === 'd' && players[1]) setDir(players[1], m.d);
       else if (m.t === 'start') start();
       else if (m.t === 'r') { reset(); start(); }
+      else if (m.t === 'wrap') { wrapOn = !!m.on; btnWrap.textContent = '穿墙：' + (wrapOn ? '开' : '关'); btnWrap.classList.toggle('on', wrapOn); sendState(); }
     } else {
       if (m.t === 's') applyState(m);
       else if (m.t === 'p') popToast(m.x);
@@ -336,15 +341,29 @@ html, body {
   // ================= 状态同步 =================
   function sendState() {
     if (mode !== 'host' || !conn || !conn.open) return;
-    conn.send({
+    var msg = {
       t: 's',
       sn: players.map(function (p) {
         return { b: p.snake.map(function (c) { return c.x + ',' + c.y; }).join(';'),
                  d: p.dir, al: p.alive ? 1 : 0, sc: p.score };
       }),
       fd: foods.map(function (f) { return f.x + ',' + f.y; }),
-      st: status, wrap: wrapOn ? 1 : 0
-    });
+      st: status, wrap: wrapOn ? 1 : 0, time: timeLeft
+    };
+    if (status === 'over') {
+      var p1 = players[0], p2 = players[1];
+      if (p1.score === p2.score) {
+        msg.over = { title: '平局！', tip: '势均力敌，再来一局？' };
+      } else {
+        var w = p1.score > p2.score ? p1 : p2;
+        var iWin = (mode === 'host') ? (w === players[0]) : (w === players[1]);
+        msg.over = {
+          title: (iWin ? '你赢了！' : '你输了！'),
+          tip: '比分 ' + p1.score + ' : ' + p2.score + ' · 吃得多者胜'
+        };
+      }
+    }
+    conn.send(msg);
   }
 
   function applyState(m) {
@@ -364,10 +383,12 @@ html, body {
     status = m.st;
     wrapOn = !!m.wrap;
     btnWrap.classList.toggle('on', wrapOn);
+    if (typeof m.time === 'number') timeLeft = m.time;
     syncHud();
     if (prev !== status) {
       if (status === 'running') hideOverlay();
       else if (status === 'ready') showOverlay('等待房主开始', '房主点击开始后开战', '稍等…');
+      else if (status === 'over' && m.over) showOverlay(m.over.title, m.over.tip, '再来一局');
     }
     draw();
   }
@@ -390,13 +411,18 @@ html, body {
     });
     foods = [];
     for (var i = 0; i < FOOD_COUNT; i++) spawnFood();
-    interval = BASE_INTERVAL; acc = 0; status = 'ready';
+    interval = BASE_INTERVAL; acc = 0; status = 'ready'; timeLeft = GAME_SECONDS; gameStarted = false;
     syncHud(); draw();
   }
 
   function start() {
     if (status === 'running') return;
     if (status === 'over') reset();
+    if (!gameStarted) {
+      endTime = performance.now() + GAME_SECONDS * 1000;
+      timeLeft = GAME_SECONDS;
+      gameStarted = true;
+    }
     status = 'running';
     hideOverlay();
     lastTime = performance.now();
@@ -405,14 +431,16 @@ html, body {
 
   function endGame() {
     status = 'over';
-    var alive = players.filter(function (p) { return p.alive; });
+    var p1 = players[0], p2 = players[1];
     var title, tip;
-    if (alive.length === 2) { title = '平局！'; tip = '一起撞了，再决高下？'; }
-    else if (alive.length === 0) { title = '平局！'; tip = '同归于尽，再来？'; }
-    else {
-      var w = alive[0], lose = players.filter(function (p) { return !p.alive; })[0];
-      title = '<span class="w' + w.id + '">' + (mode === 'host' ? (w === players[0] ? '你赢了！' : '你输了！') : (w === players[1] ? '你赢了！' : '你输了！')) + '</span>';
-      tip = '胜者得分 <b style="color:#ffd45e">' + w.score + '</b> · 败因：' + lose.deadMsg;
+    if (p1.score === p2.score) {
+      title = '平局！';
+      tip = '势均力敌，再来一局？';
+    } else {
+      var w = p1.score > p2.score ? p1 : p2;
+      var iWin = (mode === 'host') ? (w === players[0]) : (w === players[1]);
+      title = '<span class="w' + (w === players[0] ? '1' : '2') + '">' + (iWin ? '你赢了！' : '你输了！') + '</span>';
+      tip = '比分 ' + p1.score + ' : ' + p2.score + ' · 吃得多者胜';
     }
     showOverlay(title, tip, '再来一局');
     sendState();
@@ -446,43 +474,26 @@ html, body {
     var i, j, moves = [];
     for (i = 0; i < players.length; i++) {
       var p = players[i];
-      if (!p.alive) continue;
       p.dir = p.nextDir;
       var head = p.snake[0], nx = head.x, ny = head.y;
       if (p.dir === 'up') ny--; else if (p.dir === 'down') ny++;
       else if (p.dir === 'left') nx--; else nx++;
       if (wrapOn) { nx = (nx + COLS) % COLS; ny = (ny + ROWS) % ROWS; }
-      else if (nx < 0 || nx >= COLS || ny < 0 || ny >= ROWS) { p.alive = false; p.deadMsg = '撞墙了'; }
+      else if (nx < 0 || nx >= COLS || ny < 0 || ny >= ROWS) { nx = head.x; ny = head.y; } // 撞墙原地不动（不死亡）
       moves.push({ p: p, nx: nx, ny: ny });
     }
 
-    var bodyMap = {};
-    for (i = 0; i < players.length; i++)
-      for (j = 0; j < players[i].snake.length; j++)
-        bodyMap[players[i].snake[j].y * COLS + players[i].snake[j].x] = players[i].id;
-
+    // 只处理吃食物，不再判定任何碰撞死亡（身体/自己/头对头/墙都不会死）
     for (i = 0; i < moves.length; i++) {
-      var m = moves[i];
-      if (!m.p.alive) continue;
-      for (j = i + 1; j < moves.length; j++) {
-        if (moves[j].nx === m.nx && moves[j].ny === m.ny) {
-          m.p.alive = false; m.p.deadMsg = '头对头相撞';
-          moves[j].p.alive = false; moves[j].p.deadMsg = '头对头相撞';
-        }
-      }
-      var key = m.ny * COLS + m.nx;
-      if (m.p.alive && bodyMap[key]) {
-        m.p.alive = false;
-        m.p.deadMsg = bodyMap[key] === m.p.id ? '咬到自己' : '撞到对方身体';
-      }
-      m.eat = -1;
+      var mv = moves[i];
+      mv.eat = -1;
       for (j = 0; j < foods.length; j++)
-        if (foods[j].x === m.nx && foods[j].y === m.ny) { m.eat = j; break; }
+        if (foods[j].x === mv.nx && foods[j].y === mv.ny) { mv.eat = j; break; }
     }
 
     for (i = 0; i < moves.length; i++) {
       var mv = moves[i];
-      if (!mv.p.alive) continue;
+      if (mv.nx === mv.p.snake[0].x && mv.ny === mv.p.snake[0].y) continue; // 撞墙原地不动
       mv.p.snake.unshift({ x: mv.nx, y: mv.ny });
       if (mv.eat >= 0) {
         mv.p.score += SCORE_PER_FOOD; mv.p.eaten++;
@@ -494,8 +505,7 @@ html, body {
     }
     syncHud();
 
-    var alive = players.filter(function (x) { return x.alive; });
-    if (alive.length <= 1) { endGame(); return; }
+    if (timeLeft <= 0) { endGame(); return; }
     sendState();
   }
 
@@ -520,6 +530,9 @@ html, body {
     document.getElementById('st1').classList.toggle('me', mySlot === 0);
     document.getElementById('st2').classList.toggle('me', mySlot === 1);
     btnStart2.textContent = status === 'running' ? '暂停' : '开始';
+    var mm = Math.floor(timeLeft / 60), ss = timeLeft % 60;
+    elTimer.textContent = (mm < 10 ? '0' : '') + mm + ':' + (ss < 10 ? '0' : '') + ss;
+    elTimer.style.color = timeLeft <= 10 ? '#ff6b6b' : '#9aa';
   }
   function showOverlay(title, tip, btn) {
     ovTitle.innerHTML = title; ovTip.innerHTML = tip;
@@ -533,7 +546,7 @@ html, body {
     elMenu.classList.add('hide');
     elGame.classList.remove('hide');
     roomTag.textContent = mode === 'host' ? ('房间 ' + roomCodeEl.textContent) : '';
-    btnWrap.classList.toggle('hide', mode !== 'host');
+    btnWrap.classList.remove('hide');
     showOverlay(mode === 'host' ? '等待对手加入' : '已连接', mode === 'host' ? '把房间码发给对手' : '等待房主开始…', '开始对战');
     if (mode === 'host') { btnStart.classList.add('hide'); }
     reset();
@@ -648,6 +661,7 @@ html, body {
     lastTime = now;
     if (dt > 300) dt = 300;
     if (mode === 'host' && status === 'running') {
+      timeLeft = Math.max(0, Math.ceil((endTime - performance.now()) / 1000));
       tick++;
       acc += dt;
       while (acc >= interval) {
@@ -655,6 +669,7 @@ html, body {
         step();
         if (status !== 'running') break;
       }
+      syncHud();
       draw();
     } else { tick++; draw(); }
   }
@@ -759,11 +774,15 @@ html, body {
     else if (conn && conn.open) conn.send({ t: 'r' });
   });
   btnWrap.addEventListener('click', function () {
-    if (mode !== 'host') return;
-    wrapOn = !wrapOn;
-    btnWrap.textContent = '穿墙：' + (wrapOn ? '开' : '关');
-    btnWrap.classList.toggle('on', wrapOn);
-    sendState();
+    var next = !wrapOn;
+    if (mode === 'host') {
+      wrapOn = next;
+      btnWrap.textContent = '穿墙：' + (wrapOn ? '开' : '关');
+      btnWrap.classList.toggle('on', wrapOn);
+      sendState();
+    } else if (conn && conn.open) {
+      conn.send({ t: 'wrap', on: next });
+    }
   });
 
   document.addEventListener('touchmove', function (e) {
