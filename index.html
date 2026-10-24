@@ -325,21 +325,29 @@ html, body {
   function joinRoom() {
     var code = (inCode.value || '').trim();
     if (!/^\d{4}$/.test(code)) { netMsg('请输入 4 位数字房间码'); return; }
+    if (peer && peer.destroy) { try { peer.destroy(); } catch (e) {} }
     mode = 'client'; mySlot = 1;
     netMsg('连接中…');
     peer = new Peer({ debug: 1 });
-
-    peer.on('open', function () {
+    var tries = 0, maxTries = 3;
+    peer.on('open', function () { tryConnect(); });
+    peer.on('error', function (err) {
+      if (err.type === 'peer-unavailable') {
+        if (tries < maxTries) { netMsg('连接中…(第' + tries + '次)'); tryConnect(); }
+        else netMsg('房间不存在：确认对方房间仍开着、房间码正确');
+      } else netMsg('网络错误：' + err.type + '，刷新重试');
+    });
+    function tryConnect() {
+      if (tries >= maxTries) return;
+      tries++;
       conn = peer.connect('ssna-' + code, { reliable: true });
       bindConn();
       setTimeout(function () {
-        if (!conn || !conn.open) netMsg('连不上：检查房间码 / 对方是否在线，或双方换 WiFi/流量试试');
-      }, 8000);
-    });
-    peer.on('error', function (err) {
-      if (err.type === 'peer-unavailable') netMsg('房间不存在，检查房间码');
-      else netMsg('网络错误：' + err.type);
-    });
+        if (conn && conn.open) return;
+        if (tries < maxTries) { netMsg('连接中…(第' + tries + '次)'); tryConnect(); }
+        else netMsg('连不上：确认对方房间仍开着、房间码正确，或双方换网络试试');
+      }, 2500);
+    }
   }
 
   function bindConn() {
@@ -392,12 +400,11 @@ html, body {
     if (status === 'over') {
       var p1 = players[0], p2 = players[1];
       if (p1.score === p2.score) {
-        msg.over = { title: '平局！', tip: '势均力敌，再来一局？' };
+        msg.over = { win: 0, tip: '势均力敌，再来一局？' };
       } else {
         var w = p1.score > p2.score ? p1 : p2;
-        var iWin = (mode === 'host') ? (w === players[0]) : (w === players[1]);
         msg.over = {
-          title: (iWin ? '你赢了！' : '你输了！'),
+          win: (w === players[0] ? 1 : 2),
           tip: '比分 ' + p1.score + ' : ' + p2.score + ' · 吃得多者胜'
         };
       }
@@ -427,7 +434,10 @@ html, body {
     if (prev !== status) {
       if (status === 'running') hideOverlay();
       else if (status === 'ready') showOverlay('等待房主开始', '房主点击开始后开战', '稍等…');
-      else if (status === 'over' && m.over) showOverlay(m.over.title, m.over.tip, '再来一局');
+      else if (status === 'over' && m.over) {
+        var myWin = m.over.win === 0 ? null : (m.over.win === mySlot + 1);
+        showOverlay(myWin === null ? '平局！' : (myWin ? '你赢了！' : '你输了！'), m.over.tip, '再来一局');
+      }
     }
     draw();
   }
@@ -833,8 +843,19 @@ html, body {
 
   btnFs.addEventListener('click', function () {
     var el = document.documentElement;
-    var req = el.requestFullscreen || el.webkitRequestFullscreen || el.msRequestFullscreen;
-    if (req) { try { req.call(el); } catch (e) {} }
+    var req = el.requestFullscreen || el.webkitRequestFullscreen || el.mozRequestFullScreen || el.msRequestFullscreen;
+    if (!req) {
+      if (screen.orientation && screen.orientation.lock) {
+        screen.orientation.lock('landscape').catch(function () {});
+      } else {
+        alert('当前浏览器不支持网页全屏：iPhone 的 Safari 不支持此功能，请直接横屏手机即可游玩；安卓请用 Chrome 浏览器。');
+      }
+      return;
+    }
+    try {
+      var p = req.call(el);
+      if (p && p.then) p.catch(function () {});
+    } catch (e) {}
     if (screen.orientation && screen.orientation.lock) {
       screen.orientation.lock('landscape').catch(function () {});
     }
