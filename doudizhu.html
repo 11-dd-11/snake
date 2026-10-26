@@ -1,0 +1,490 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>斗地主 · 三人联机</title>
+<meta name="description" content="网页版三人斗地主联机小游戏：建房分享房间码，三台手机实时对战，房主拥有耍赖特权。">
+<script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+<style>
+  * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html, body { width:100%; height:100%; height:100dvh; margin:0;
+    font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;
+    background:#0e0e16; color:#e8e8f0; overflow:hidden; }
+  #app { width:100%; height:100%; position:relative; }
+  .hide { display:none !important; }
+  button { font-family:inherit; cursor:pointer; border:none; outline:none; }
+
+  #menu { position:absolute; inset:0; display:flex; flex-direction:column;
+    align-items:center; justify-content:center; gap:14px; padding:16px; }
+  #menu h1 { font-size:30px; margin:0 0 2px; color:#ffd45e; letter-spacing:4px; }
+  #menu .sub { font-size:13px; color:#9aa; margin:0 0 6px; text-align:center; }
+  .mcard { background:#1b1b2b; border:1px solid #2c2c44; border-radius:14px;
+    padding:16px; width:min(340px,90vw); display:flex; flex-direction:column; gap:10px; }
+  .mbtn { padding:13px; font-size:16px; font-weight:bold; border-radius:10px;
+    background:linear-gradient(135deg,#22c55e,#16a34a); color:#fff; }
+  .mbtn.alt { background:linear-gradient(135deg,#6366f1,#4338ca); }
+  #inCode { padding:12px; font-size:20px; letter-spacing:8px; text-align:center;
+    border-radius:10px; border:1px solid #2c2c44; background:#0e0e16; color:#fff; }
+  #roomBox { width:min(340px,90vw); text-align:center; }
+  #roomCode { font-size:38px; font-weight:bold; color:#7ee6a8; letter-spacing:10px; margin:4px 0; }
+  #roomCode small { display:block; font-size:12px; color:#9aa; letter-spacing:1px; }
+  #netTip { color:#ff8a8a; font-size:13px; text-align:center; min-height:18px; }
+
+  #game { position:absolute; inset:0; display:none; flex-direction:column;
+    background:linear-gradient(180deg,#15402b,#0e0e16); }
+  .seat { position:relative; display:flex; justify-content:flex-start; align-items:center;
+    padding:8px 70px 8px 12px; font-size:13px; }
+  .seat .name { font-weight:bold; }
+  .seat .info { display:none; }
+  .prank { position:absolute; right:6px; top:50%; transform:translateY(-50%); display:flex; gap:4px; }
+  .prank button { width:30px; height:30px; font-size:15px; border:none; border-radius:8px;
+    background:#2c2c44; cursor:pointer; padding:0; line-height:1; }
+  .prank button:active { background:#3a3a5c; transform:scale(.9); }
+  .seat.shake { animation:shk .5s; }
+  @keyframes shk { 0%,100%{transform:translateX(0)} 20%{transform:translateX(-9px) rotate(-5deg)} 40%{transform:translateX(9px) rotate(5deg)} 60%{transform:translateX(-6px)} 80%{transform:translateX(6px)} }
+  .seat.landlord .name::after { content:' 👑'; }
+  .seat .cnt { background:#000a; border-radius:8px; padding:2px 8px; margin-left:6px; font-size:12px; }
+  .seat.active { background:#ffffff14; box-shadow:inset 0 0 0 2px #ffd45e; }
+  .playzone { flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:8px; padding:8px; }
+  .lastplay { min-height:64px; display:flex; flex-wrap:wrap; gap:4px; justify-content:center; align-items:center; }
+  .lastplay .who { width:100%; text-align:center; font-size:12px; color:#9aa; }
+  .cheat-tag { color:#ff6b6b; font-weight:bold; }
+  .bottom { background:#0e0e16; padding:10px; }
+  .hand { display:flex; flex-wrap:wrap; gap:4px; justify-content:center; min-height:84px; }
+  .card { width:46px; height:64px; border-radius:7px; background:#fff; color:#111;
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    font-weight:bold; font-size:18px; position:relative; user-select:none; border:2px solid #fff; }
+  .card.sel { transform:translateY(-12px); border-color:#ffd45e; }
+  .card.red { color:#e23; }
+  .card .s { font-size:13px; }
+  .controls { display:flex; gap:8px; justify-content:center; margin-top:8px; flex-wrap:wrap; }
+  .cbtn { padding:10px 16px; border-radius:10px; font-size:15px; font-weight:bold; background:#2c2c44; color:#fff; }
+  .cbtn.go { background:linear-gradient(135deg,#22c55e,#16a34a); }
+  .cbtn.pass { background:linear-gradient(135deg,#f59e0b,#d97706); }
+  .cbtn.ghost { background:#1b1b2b; }
+  .cbtn:disabled { opacity:.4; }
+  #cheatBar { display:none; align-items:center; gap:8px; justify-content:center;
+    padding:6px; background:#3a1a1a; color:#ffb3b3; font-size:13px; }
+  #cheatBar.on { display:flex; }
+  #overlay { position:absolute; inset:0; background:#000c; display:none;
+    flex-direction:column; align-items:center; justify-content:center; gap:14px; z-index:30; }
+  #overlay.show { display:flex; }
+  #overlay .ot { font-size:30px; font-weight:bold; color:#ffd45e; }
+  #overlay .od { font-size:15px; color:#ddd; }
+  .backbtn { position:absolute; top:8px; left:8px; z-index:40; background:#2c2c44;
+    color:#fff; padding:6px 12px; border-radius:8px; font-size:13px; }
+</style>
+</head>
+<body>
+<div id="app">
+  <button class="backbtn hide" id="backBtn">← 返回</button>
+
+  <div id="menu">
+    <h1>斗地主</h1>
+    <p class="sub">三人联机 · 建房分享房间码 · 房主可耍赖</p>
+    <div class="mcard">
+      <button class="mbtn" id="btnHost">创建房间</button>
+      <div style="display:flex;gap:10px">
+        <input id="inCode" placeholder="房间码" maxlength="4" inputmode="numeric" style="flex:1">
+        <button class="mbtn alt" id="btnJoin" style="flex:1">加入房间</button>
+      </div>
+    </div>
+    <div id="roomBox" class="hide">
+      <div id="roomCode">----<small>把房间码发给另外两人</small></div>
+    </div>
+    <div id="netTip"></div>
+  </div>
+
+  <div id="game">
+    <div id="cheatBar">房主耍赖模式已开：可随意出牌（如 2 带 1 带 2）✅</div>
+    <div class="seat" id="seat1"><span class="name">玩家2</span><span class="info"><span class="cnt">0</span> 张</span></div>
+    <div class="seat" id="seat2"><span class="name">玩家3</span><span class="info"><span class="cnt">0</span> 张</span></div>
+    <div class="playzone">
+      <div class="lastplay" id="lastPlay"><span class="who">等待出牌…</span></div>
+    </div>
+    <div class="seat" id="seat0" style="background:#0e0e16aa"><span class="name">你</span><span class="info"><span class="cnt">0</span> 张</span></div>
+    <div class="bottom">
+      <div class="hand" id="hand"></div>
+      <div class="controls" id="ctrls"></div>
+    </div>
+  </div>
+
+  <div id="overlay"><div class="ot" id="ovT"></div><div class="od" id="ovD"></div><button class="cbtn go" id="ovBtn">再来一局</button></div>
+</div>
+
+<script>
+(function () {
+  var elMenu = document.getElementById('menu'), elGame = document.getElementById('game');
+  var btnHost = document.getElementById('btnHost'), btnJoin = document.getElementById('btnJoin');
+  var inCode = document.getElementById('inCode'), roomBox = document.getElementById('roomBox');
+  var roomCodeEl = document.getElementById('roomCode'), netTip = document.getElementById('netTip');
+  var handEl = document.getElementById('hand'), ctrlsEl = document.getElementById('ctrls');
+  var lastPlayEl = document.getElementById('lastPlay'), cheatBar = document.getElementById('cheatBar');
+  var seatEls = [document.getElementById('seat0'), document.getElementById('seat1'), document.getElementById('seat2')];
+  var overlay = document.getElementById('overlay'), ovT = document.getElementById('ovT'), ovD = document.getElementById('ovD'), ovBtn = document.getElementById('ovBtn');
+  var backBtn = document.getElementById('backBtn');
+  function netMsg(t) { netTip.textContent = t; }
+
+  // ================= 牌 =================
+  var SUITS = ['♠','♥','♣','♦'];
+  var RANKS = ['3','4','5','6','7','8','9','10','J','Q','K','A','2'];
+  function rankVal(r) { return RANKS.indexOf(r) + 3; }
+  var NAMES = { 16:'小王', 17:'大王' };
+  function buildDeck() {
+    var deck = [], id = 0, i, j;
+    for (i = 0; i < SUITS.length; i++)
+      for (j = 0; j < RANKS.length; j++)
+        deck.push({ id: id++, suit: SUITS[i], rank: RANKS[j], val: rankVal(RANKS[j]), red: (SUITS[i] === '♥' || SUITS[i] === '♦') });
+    deck.push({ id: id++, suit: '', rank: '小王', val: 16, red: false });
+    deck.push({ id: id++, suit: '', rank: '大王', val: 17, red: true });
+    return deck;
+  }
+  function shuffle(a) { for (var i = a.length - 1; i > 0; i--) { var j = Math.floor(Math.random() * (i + 1)); var t = a[i]; a[i] = a[j]; a[j] = t; } return a; }
+  function cardSort(a, b) { return b.val - a.val; }
+
+  // ================= 牌型 =================
+  function counts(cards) { var m = {}; cards.forEach(function (c) { m[c.val] = (m[c.val] || 0) + 1; }); return m; }
+  function parseCombo(cards) {
+    if (!cards.length) return null;
+    var n = cards.length;
+    var vals = cards.map(function (c) { return c.val; }).sort(function (a, b) { return a - b; });
+    var c = counts(cards), keys = Object.keys(c).map(Number).sort(function (a, b) { return a - b; });
+    var grp = keys.map(function (k) { return c[k]; });
+    if (n === 2 && c[16] && c[17]) return { type: 'rocket', main: 17, len: 1 };
+    if (n === 4 && keys.length === 1) return { type: 'bomb', main: keys[0], len: 1 };
+    if (n === 1) return { type: 'single', main: vals[0], len: 1 };
+    if (n === 2 && keys.length === 1) return { type: 'pair', main: keys[0], len: 1 };
+    if (n === 3 && keys.length === 1) return { type: 'trio', main: keys[0], len: 1 };
+    var trios = keys.filter(function (k) { return c[k] === 3; });
+    if (n === 4 && trios.length === 1 && keys.length === 2) return { type: 'trio1', main: trios[0], len: 1 };
+    if (n === 5 && trios.length === 1 && keys.length === 2 && c[keys[1 - keys.indexOf(trios[0])]] === 2) return { type: 'trio2', main: trios[0], len: 1 };
+    if (n >= 5 && keys.length === n && vals[n - 1] - vals[0] === n - 1 && vals[n - 1] <= 14) return { type: 'straight', main: vals[n - 1], len: n };
+    if (n >= 6 && n % 2 === 0 && grp.every(function (g) { return g === 2; }) && keys.length === n / 2 && keys[keys.length - 1] - keys[0] === keys.length - 1 && keys[keys.length - 1] <= 14) return { type: 'pairs', main: keys[keys.length - 1], len: keys.length };
+    if (trios.length >= 2) {
+      var st = trios.slice().sort(function (a, b) { return a - b; }), cont = true;
+      for (var i = 1; i < st.length; i++) if (st[i] - st[i - 1] !== 1) cont = false;
+      if (cont && st[st.length - 1] <= 14) {
+        if (n === 3 * st.length) return { type: 'plane', main: st[st.length - 1], len: st.length };
+        if (n === 4 * st.length) { var w1 = keys.filter(function (k) { return c[k] !== 3; }); if (w1.length === st.length && w1.every(function (k) { return c[k] === 1; })) return { type: 'plane1', main: st[st.length - 1], len: st.length }; }
+        if (n === 5 * st.length) { var w2 = keys.filter(function (k) { return c[k] !== 3; }); if (w2.length === st.length && w2.every(function (k) { return c[k] === 2; })) return { type: 'plane2', main: st[st.length - 1], len: st.length }; }
+      }
+    }
+    return null;
+  }
+  function beats(prev, cur) {
+    if (!prev) return true;
+    if (prev.cheat) return true;
+    if (cur.type === 'rocket') return true;
+    if (cur.type === 'bomb') { if (prev.type === 'rocket') return false; if (prev.type === 'bomb') return cur.main > prev.main; return true; }
+    if (prev.type === 'bomb' || prev.type === 'rocket') return false;
+    return cur.type === prev.type && cur.len === prev.len && cur.main > prev.main;
+  }
+
+  // ================= 联机（host 权威 + 中继） =================
+  var peer = null, mode = '', mySlot = 0, conns = [null, null], game = null, selected = {};
+
+  function genCode() { var s = ''; for (var i = 0; i < 4; i++) s += Math.floor(Math.random() * 10); return s; }
+
+  function beHost() {
+    mode = 'host'; mySlot = 0;
+    var code = genCode();
+    peer = new Peer('ddz-' + code, { debug: 1 });
+    peer.on('open', function () { roomBox.classList.remove('hide'); roomCodeEl.firstChild.textContent = code; netMsg('等待另外两名玩家加入…'); });
+    peer.on('error', function (err) { if (err.type === 'unavailable-id') { peer.destroy(); beHost(); } else netMsg('网络错误：' + err.type); });
+    peer.on('connection', function (c) {
+      if (conns[0] && conns[1]) { c.close(); return; }
+      var ci = conns[0] ? 1 : 0;
+      conns[ci] = c;
+      c.send({ t: 'welcome', slot: ci + 1 });
+      c.on('data', function (m) { onClientMsg(ci + 1, m); });
+      c.on('close', function () { conns[ci] = null; if (game && game.phase !== 'over') netMsg('有玩家掉线，请点“再来一局”重开'); });
+      if (conns[0] && conns[1] && !game) startGame();
+      else broadcast();
+    });
+  }
+
+  function joinRoom() {
+    var code = (inCode.value || '').trim();
+    if (!/^\d{4}$/.test(code)) { netMsg('请输入 4 位数字房间码'); return; }
+    mode = 'client'; netMsg('连接中…');
+    peer = new Peer({ debug: 1 });
+    peer.on('open', function () {
+      var c = peer.connect('ddz-' + code, { reliable: true });
+      c.on('open', function () { netMsg(''); });
+      c.on('data', function (m) { if (m.t === 'welcome') { mySlot = m.slot; netMsg(''); } else if (m.t === 'state') { game = m.s; render(m.s); } });
+      c.on('close', function () { netMsg('房主掉线'); });
+      window._c = c;
+    });
+    peer.on('error', function (err) {
+      if (err.type === 'peer-unavailable') netMsg('房间不存在：确认房主在线、房间码正确');
+      else netMsg('网络错误：' + err.type + '，刷新重试');
+    });
+  }
+  function sendToHost(m) { if (window._c && window._c.open) window._c.send(m); }
+
+  function onClientMsg(index, m) {
+    if (!game) return;
+    if (m.t === 'bid') doBid(index, m.v);
+    else if (m.t === 'play') doPlay(index, m.cards);
+    else if (m.t === 'pass') doPass(index);
+    else if (m.t === 'restart') startGame();
+  }
+
+  // ================= 游戏逻辑（host 权威） =================
+  function startGame() {
+    var deck = shuffle(buildDeck());
+    game = {
+      phase: 'bid', players: [
+        { cards: [], isLandlord: false, bid: -1 },
+        { cards: [], isLandlord: false, bid: -1 },
+        { cards: [], isLandlord: false, bid: -1 }
+      ],
+      bottom: [], turn: 0, lastPlay: null, passes: 0, landlord: -1,
+      highBid: 0, highBidder: -1, bidTurn: 0, multiplier: 1, winner: -1, cheatOn: false
+    };
+    for (var i = 0; i < 51; i++) game.players[i % 3].cards.push(deck[i]);
+    game.bottom = deck.slice(51);
+    game.players.forEach(function (p) { p.cards.sort(cardSort); });
+    broadcast();
+  }
+
+  function doBid(index, v) {
+    if (game.phase !== 'bid' || game.bidTurn !== index) return;
+    if (v > game.highBid && v <= 3) { game.highBid = v; game.highBidder = index; }
+    game.players[index].bid = v;
+    game.bidTurn++;
+    if (game.bidTurn > 2 || game.highBid === 3) finishBid();
+    broadcast();
+  }
+  function finishBid() {
+    if (game.highBidder < 0) { startGame(); return; }
+    game.landlord = game.highBidder;
+    game.players[game.landlord].isLandlord = true;
+    game.players[game.landlord].cards = game.players[game.landlord].cards.concat(game.bottom);
+    game.players[game.landlord].cards.sort(cardSort);
+    game.phase = 'play'; game.turn = game.landlord; game.lastPlay = null; game.passes = 0;
+  }
+
+  function cardsByIdFor(index, ids) {
+    var map = {}; game.players[index].cards.forEach(function (c) { map[c.id] = c; });
+    return ids.map(function (id) { return map[id]; }).filter(Boolean);
+  }
+  function doPlay(index, ids) {
+    if (game.phase !== 'play' || game.turn !== index) return;
+    var cards = cardsByIdFor(index, ids);
+    if (!cards.length) return;
+    var isHostCheat = (index === 0 && game.cheatOn);
+    var combo = isHostCheat ? { type: 'cheat', main: 0, len: 1 } : parseCombo(cards);
+    if (!combo) { if (index !== 0) { netMsg('牌型不合法'); } return; }
+    if (!isHostCheat && game.lastPlay && !beats(game.lastPlay.combo, combo)) { if (index !== 0) netMsg('压不过上家'); return; }
+    var set = {}; ids.forEach(function (id) { set[id] = 1; });
+    game.players[index].cards = game.players[index].cards.filter(function (c) { return !set[c.id]; });
+    if (combo.type === 'bomb' || combo.type === 'rocket') game.multiplier *= 2;
+    game.lastPlay = { by: index, cards: cards, combo: combo, cheat: isHostCheat };
+    game.passes = 0;
+    if (game.players[index].cards.length === 0) { endGame(index); return; }
+    game.turn = (index + 1) % 3;
+    broadcast();
+  }
+  function doPass(index) {
+    if (game.phase !== 'play' || game.turn !== index) return;
+    if (!game.lastPlay) return;
+    game.passes++;
+    if (game.passes >= 2) { game.lastPlay = null; game.passes = 0; }
+    game.turn = (index + 1) % 3;
+    broadcast();
+  }
+  function endGame(winner) {
+    game.phase = 'over'; game.winner = winner; game.landlordWin = (winner === game.landlord);
+    broadcast();
+  }
+  function toggleCheat() { if (mode === 'host') { game.cheatOn = !game.cheatOn; broadcast(); } }
+
+  // ================= 广播 / 渲染 =================
+  function cloneFor(index) {
+    var g = JSON.parse(JSON.stringify(game));
+    for (var i = 0; i < 3; i++) {
+      g.players[i].cardCount = g.players[i].cards.length;
+      if (i !== index) g.players[i].cards = [];
+    }
+    g.you = index;
+    return g;
+  }
+  function broadcast() {
+    if (mode !== 'host' || !game) return;
+    conns.forEach(function (c, i) { if (c && c.open) c.send({ t: 'state', s: cloneFor(i + 1) }); });
+    render(cloneFor(0));
+  }
+
+  function cardHTML(c) {
+    var label = c.val >= 16 ? NAMES[c.val] : c.rank;
+    return '<div class="card' + (c.red ? ' red' : '') + '" data-id="' + c.id + '">' +
+      (c.val >= 16 ? label : label + '<span class="s">' + c.suit + '</span>') + '</div>';
+  }
+
+  // ===== 整蛊：倒水桶 / 西红柿 =====
+  function flyAndHit(targetEl, emoji, after) {
+    var fly = document.createElement('div');
+    fly.textContent = emoji;
+    var sy = window.innerHeight - 80;
+    fly.style.cssText = 'position:fixed;left:50%;top:' + sy + 'px;font-size:42px;' +
+      'transform:translate(-50%,-50%);z-index:80;pointer-events:none;' +
+      'transition:transform .45s cubic-bezier(.4,1.5,.6,1)';
+    document.body.appendChild(fly);
+    var r = targetEl.getBoundingClientRect();
+    var dx = (r.left + r.width / 2) - window.innerWidth / 2;
+    var dy = (r.top + r.height / 2) - sy;
+    requestAnimationFrame(function () {
+      fly.style.transform = 'translate(calc(-50% + ' + dx + 'px), calc(-50% + ' + dy + 'px)) rotate(380deg) scale(1.3)';
+    });
+    fly.addEventListener('transitionend', function () { fly.remove(); if (after) after(); }, { once: true });
+  }
+  function playSound() {
+    try {
+      var ac = window._ac || (window._ac = new (window.AudioContext || window.webkitAudioContext)());
+      var o = ac.createOscillator(), gg = ac.createGain();
+      o.type = 'square';
+      o.frequency.setValueAtTime(200, ac.currentTime);
+      o.frequency.exponentialRampToValueAtTime(55, ac.currentTime + 0.16);
+      gg.gain.setValueAtTime(0.35, ac.currentTime);
+      gg.gain.exponentialRampToValueAtTime(0.01, ac.currentTime + 0.22);
+      o.connect(gg); gg.connect(ac.destination);
+      o.start(); o.stop(ac.currentTime + 0.22);
+    } catch (e) {}
+  }
+  function speak(t) {
+    if (!window.speechSynthesis) return;
+    try {
+      window.speechSynthesis.resume();
+      window.speechSynthesis.cancel();
+      var u = new SpeechSynthesisUtterance(t);
+      u.lang = 'zh-CN'; u.volume = 1; u.rate = 1.15; u.pitch = 1.25;
+      var vs = window.speechSynthesis.getVoices();
+      for (var i = 0; i < vs.length; i++) { if (/zh/i.test(vs[i].lang)) { u.voice = vs[i]; break; } }
+      window.speechSynthesis.speak(u);
+    } catch (e) {}
+  }
+  function tossAt(idx, item) {
+    var el = seatEls[idx];
+    if (!el) return;
+    var emoji = item === 'tomato' ? '🍅' : '🪣';
+    flyAndHit(el, emoji, function () {
+      el.classList.add('shake');
+      setTimeout(function () { el.classList.remove('shake'); }, 500);
+      if (navigator.vibrate) navigator.vibrate([120, 60, 130]);
+      playSound();
+      var t = item === 'tomato' ? '安迪 安迪 安迪' : '哎 接住喽';
+      if (Math.random() < 0.25) t = '嘎嘎 得啦塞';
+      speak(t);
+    });
+  }
+
+  function render(g) {
+    if (!g) return;
+    game = g; mySlot = g.you;
+    if (elGame.classList.contains('hide')) { elMenu.classList.add('hide'); elGame.classList.remove('hide'); backBtn.classList.remove('hide'); }
+    if (g.phase !== 'over') overlay.classList.remove('show');
+    cheatBar.classList.toggle('on', !!(g.cheatOn && g.you === 0 && g.phase === 'play'));
+
+    function seatInfo(idx) {
+      var p = g.players[idx];
+      var el = seatEls[idx];
+      el.classList.toggle('landlord', !!p.isLandlord);
+      el.classList.toggle('active', g.phase === 'play' && g.turn === idx);
+      var cnt = p.cardCount != null ? p.cardCount : p.cards.length;
+      el.querySelector('.name').textContent = (idx === 0 ? '你' : '玩家' + (idx + 1)) + ' · ' + cnt + '张';
+      var prank = el.querySelector('.prank');
+      if (!prank) {
+        prank = document.createElement('span');
+        prank.className = 'prank';
+        prank.innerHTML = '<button data-seat="' + idx + '" data-it="bucket">🪣</button><button data-seat="' + idx + '" data-it="tomato">🍅</button>';
+        el.appendChild(prank);
+        prank.querySelectorAll('button').forEach(function (b) {
+          b.addEventListener('click', function (e) { e.stopPropagation(); tossAt(+b.dataset.seat, b.dataset.it); });
+        });
+      }
+    }
+    seatInfo(1); seatInfo(2); seatInfo(0);
+
+    if (g.lastPlay && g.lastPlay.cards.length) {
+      var who = g.lastPlay.by === 0 ? '你' : ('玩家' + (g.lastPlay.by + 1));
+      var html = '<span class="who">' + who + ' 出了 ' + (g.lastPlay.cheat ? '<span class="cheat-tag">【耍赖】</span>' : '') + g.lastPlay.cards.length + ' 张</span>';
+      html += g.lastPlay.cards.map(cardHTML).join('');
+      lastPlayEl.innerHTML = html;
+    } else {
+      lastPlayEl.innerHTML = '<span class="who">' + (g.phase === 'play' ? '新一轮，请出牌' : '等待…') + '</span>';
+    }
+
+    var myCards = g.players[0].cards;
+    handEl.innerHTML = myCards.map(cardHTML).join('');
+    Array.prototype.forEach.call(handEl.children, function (elc) {
+      var id = +elc.getAttribute('data-id');
+      if (selected[id]) elc.classList.add('sel');
+      elc.addEventListener('click', function () {
+        if (selected[id]) { delete selected[id]; elc.classList.remove('sel'); }
+        else { selected[id] = 1; elc.classList.add('sel'); }
+      });
+    });
+
+    renderControls(g);
+  }
+
+  function renderControls(g) {
+    ctrlsEl.innerHTML = '';
+    if (g.phase === 'bid') {
+      if (g.bidTurn !== g.you) { ctrlsEl.innerHTML = '<span style="color:#9aa;font-size:14px">轮到 ' + (g.bidTurn === 0 ? '你' : '玩家' + (g.bidTurn + 1)) + ' 叫分…</span>'; return; }
+      [0, 1, 2, 3].forEach(function (v) {
+        var b = document.createElement('button');
+        b.className = 'cbtn' + (v === 0 ? ' pass' : ' go');
+        b.textContent = v === 0 ? '不叫' : (v + '分');
+        b.disabled = v <= g.highBid;
+        b.onclick = function () { if (mode === 'host') doBid(g.you, v); else sendToHost({ t: 'bid', v: v }); };
+        ctrlsEl.appendChild(b);
+      });
+      return;
+    }
+    if (g.phase === 'play') {
+      if (g.turn !== g.you) { ctrlsEl.innerHTML = '<span style="color:#9aa;font-size:14px">等待 玩家' + (g.turn + 1) + ' 出牌…</span>'; return; }
+      if (g.you === 0) {
+        var cb = document.createElement('button');
+        cb.className = 'cbtn ghost';
+        cb.textContent = g.cheatOn ? '关闭耍赖' : '开启耍赖';
+        cb.onclick = function () { if (mode === 'host') toggleCheat(); };
+        ctrlsEl.appendChild(cb);
+      }
+      var passBtn = document.createElement('button');
+      passBtn.className = 'cbtn pass';
+      passBtn.textContent = '不出';
+      passBtn.disabled = !g.lastPlay;
+      passBtn.onclick = function () { if (mode === 'host') doPass(0); else sendToHost({ t: 'pass' }); };
+      ctrlsEl.appendChild(passBtn);
+      var playBtn = document.createElement('button');
+      playBtn.className = 'cbtn go';
+      playBtn.textContent = '出牌';
+      playBtn.onclick = function () {
+        var ids = Object.keys(selected).map(Number);
+        if (mode === 'host') doPlay(0, ids); else sendToHost({ t: 'play', cards: ids });
+        selected = {};
+      };
+      ctrlsEl.appendChild(playBtn);
+      return;
+    }
+    if (g.phase === 'over') {
+      var youWin = (g.you === g.landlord) === g.landlordWin;
+      ovT.textContent = youWin ? '你赢了！' : '你输了！';
+      ovD.textContent = '叫分 ' + g.highBid + ' · 倍数 x' + g.multiplier;
+      overlay.classList.add('show');
+    }
+  }
+
+  // ================= 入口 =================
+  btnHost.addEventListener('click', beHost);
+  btnJoin.addEventListener('click', joinRoom);
+  inCode.addEventListener('input', function () { netMsg(''); });
+  ovBtn.addEventListener('click', function () { overlay.classList.remove('show'); if (mode === 'host') startGame(); else sendToHost({ t: 'restart' }); });
+  backBtn.addEventListener('click', function () { location.reload(); });
+})();
+</script>
+</body>
+</html>
