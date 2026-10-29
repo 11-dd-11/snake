@@ -45,7 +45,7 @@ html, body {
   flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center;
   gap:18px; padding:20px;
 }
-#menu h1 { color:#eef; font-size:26px; margin-bottom:4px; }
+#menu h1 { color:#eef; font-size:26px; margin-bottom:4px; text-shadow:0 2px 14px rgba(122,162,255,.35); }
 #menu .sub { color:#8b8ba7; font-size:13px; margin-bottom:10px; }
 .mcard {
   width:100%; max-width:340px;
@@ -59,7 +59,8 @@ html, body {
   background:linear-gradient(135deg,#4ade80,#22c55e); color:#0b2d18;
 }
 .mbtn.alt { background:linear-gradient(135deg,#60a5fa,#3b82f6); color:#fff; }
-.mbtn:active { filter:brightness(1.15); }
+.mbtn { transition:transform .12s ease, filter .12s ease; }
+.mbtn:active { filter:brightness(1.15); transform:scale(.97); }
 #inCode {
   width:100%; padding:12px; border-radius:12px; border:2px solid #2a2a40;
   background:#15152a; color:#fff; font-size:20px; text-align:center;
@@ -196,7 +197,7 @@ html, body {
     <div class="sub">两台手机各扫一个码，实时对战</div>
     <div class="mcard">
       <button class="mbtn" id="btnHost">创建房间（我是房主）</button>
-      <a class="mbtn alt" href="doudizhu.html" style="display:block;text-align:center;text-decoration:none;width:min(340px,90vw);margin:0 auto;padding:13px;font-size:16px;font-weight:bold;border-radius:14px;box-sizing:border-box">🂡 斗地主（三人联机）</a>
+      <a class="mbtn alt" href="doudizhu.html" style="display:block;width:100%;box-sizing:border-box;text-align:center;text-decoration:none;padding:13px;font-size:16px;font-weight:bold;border-radius:10px">🂡 斗地主（三人联机）</a>
     <div id="roomBox" class="hide">
         房间码（发给对手）
         <b id="roomCode">----</b>
