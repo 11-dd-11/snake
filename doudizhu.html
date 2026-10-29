@@ -196,29 +196,42 @@
       if (conns[0] && conns[1]) { c.close(); return; }
       var ci = conns[0] ? 1 : 0;
       conns[ci] = c;
-      c.send({ t: 'welcome', slot: ci + 1 });
+      c.on('open', function () {
+        c.send({ t: 'welcome', slot: ci + 1 });
+        if (conns[0] && conns[1] && !game) startGame();
+        else broadcast();
+      });
       c.on('data', function (m) { onClientMsg(ci + 1, m); });
       c.on('close', function () { conns[ci] = null; if (game && game.phase !== 'over') netMsg('有玩家掉线，请点“再来一局”重开'); });
-      if (conns[0] && conns[1] && !game) startGame();
-      else broadcast();
     });
   }
 
   function joinRoom() {
     var code = (inCode.value || '').trim();
     if (!/^\d{4}$/.test(code)) { netMsg('请输入 4 位数字房间码'); return; }
+    if (peer && peer.destroy) { try { peer.destroy(); } catch (e) {} }
     mode = 'client'; netMsg('连接中…');
     peer = new Peer({ debug: 1 });
-    peer.on('open', function () {
-      var c = peer.connect('ddz-' + code, { reliable: true });
-      c.on('open', function () { netMsg(''); });
-      c.on('data', function (m) { if (m.t === 'welcome') { mySlot = m.slot; netMsg(''); } else if (m.t === 'state') { game = m.s; render(m.s); } });
-      c.on('close', function () { netMsg('房主掉线'); });
-      window._c = c;
-    });
+    var tries = 0, maxTries = 4, myConn = null;
+    function tryConnect() {
+      if (myConn) { try { myConn.close(); } catch (e) {} }
+      myConn = peer.connect('ddz-' + code, { reliable: true });
+      myConn.on('open', function () { netMsg('已连上房主，等待其他玩家加入…'); });
+      myConn.on('data', function (m) {
+        if (m.t === 'welcome') { mySlot = m.slot; }
+        else if (m.t === 'state') { game = m.s; render(m.s); }
+      });
+      myConn.on('close', function () { netMsg('与房主断开连接'); });
+      window._c = myConn;
+      setTimeout(function () {
+        if (myConn && myConn.open) return;
+        if (tries < maxTries) { tries++; netMsg('连接中…(第' + tries + '次)'); tryConnect(); }
+        else netMsg('连不上：确认房主仍开着房间、房间码正确，或双方换个网络试试');
+      }, 2500);
+    }
+    peer.on('open', function () { tryConnect(); });
     peer.on('error', function (err) {
-      if (err.type === 'peer-unavailable') netMsg('房间不存在：确认房主在线、房间码正确');
-      else netMsg('网络错误：' + err.type + '，刷新重试');
+      if (err.type !== 'peer-unavailable') netMsg('网络错误：' + err.type + '，刷新重试');
     });
   }
   function sendToHost(m) { if (window._c && window._c.open) window._c.send(m); }
